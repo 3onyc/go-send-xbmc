@@ -28,11 +28,28 @@ func (p YoutubeProvider) GetUrl(url *url.URL) (string, error) {
 }
 
 func (p YoutubeProvider) parseId(url *url.URL) (string, error) {
+	if strings.HasSuffix(url.Host, "youtu.be") {
+		return p.parseShortId(url)
+	}
+
 	if _, ok := url.Query()["v"]; !ok {
 		return "", errors.New("No video ID found in YouTube URL")
 	}
 
 	return url.Query()["v"][0], nil
+}
+
+// Parses a YouTu.be URL
+func (p YoutubeProvider) parseShortId(url *url.URL) (string, error) {
+	if len(url.Path) < 2 {
+		return "", errors.New("No video ID found in YouTu.be URL")
+	}
+
+	if id := strings.Split(url.Path[1:], "/")[0]; id != "" {
+		return id, nil
+	} else {
+		return "", errors.New("No video ID found in YouTu.be URL")
+	}
 }
 
 func init() {
