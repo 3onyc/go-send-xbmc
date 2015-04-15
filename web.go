@@ -1,11 +1,31 @@
 package sendxbmc
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 )
+
+type ApiResponse struct {
+	Error *string `json:"error"`
+}
+
+func NewApiResponse(err error) *ApiResponse {
+	if err != nil {
+		errStr := err.Error()
+		return &ApiResponse{
+			Error: &errStr,
+		}
+	} else {
+		return &ApiResponse{
+			Error: nil,
+		}
+	}
+
+}
 
 type Webserver struct {
 	api *XbmcApi
@@ -17,38 +37,37 @@ func NewWebserver(a *XbmcApi) *Webserver {
 	}
 }
 
-func (s Webserver) handleRootPost(r *http.Request) string {
+func (s Webserver) handlePost(r *http.Request) error {
 	if err := r.ParseForm(); err != nil {
-		return err.Error()
+		return err
 	}
 
 	us, ok := r.Form["url"]
 	if !ok {
-		return "No URL"
+		return errors.New("No URL")
 	}
 
 	u := strings.TrimSpace(us[0])
 	if u == "" {
-		return "No URL"
+		return errors.New("No URL")
 	}
 
 	url, err := Resolve(u)
 	if err != nil {
-		return err.Error()
+		return err
 	}
 
-	if err := s.api.Play(url); err != nil {
-		return err.Error()
-	}
-
-	return ""
+	return s.api.Play(url)
 }
+
 func (s Webserver) Root(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "text/html")
 	showErr := ""
 
 	if r.Method == "POST" {
-		showErr = s.handleRootPost(r)
+		if err := s.handlePost(r); err != nil {
+			showErr = err.Error()
+		}
 	}
 
 	fmt.Fprintf(w, `
@@ -105,9 +124,28 @@ func (s Webserver) Root(w http.ResponseWriter, r *http.Request) {
 	`, showErr)
 }
 
+func (s Webserver) Api(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not Allowed (Allowed: POST)", 405)
+		return
+	}
+
+	resp := NewApiResponse(s.handlePost(r))
+	enc, err := json.Marshal(resp)
+
+	if err != nil {
+		http.Error(w, "Something went wrong", 500)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(enc)
+}
+
 func (s Webserver) Listen(listen string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.Root)
+	mux.HandleFunc("/api", s.Api)
 
 	log.Fatal(http.ListenAndServe(listen, mux))
 }
